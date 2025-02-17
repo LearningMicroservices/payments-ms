@@ -1,11 +1,15 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { envs } from 'src/config/envs';
 import Stripe from 'stripe';
 import { PaymentSessionDto } from './dto/payment-session.dto';
 import { Request } from 'express';
+import { NATS_SERVICE } from 'src/config/services';
+import { ClientProxy } from '@nestjs/microservices';
 
 @Injectable()
 export class PaymentsService {
+  constructor(@Inject(NATS_SERVICE) private readonly client: ClientProxy) {}
+
   private readonly stripe = new Stripe(envs.stripeSecretKey);
 
   async createPaymentSession(paymentSessionDto: PaymentSessionDto) {
@@ -36,7 +40,11 @@ export class PaymentsService {
       cancel_url: envs.cancelUrl,
     });
 
-    return session;
+    return {
+      cancelUrl: session.cancel_url,
+      successUrl: session.success_url,
+      url: session.url,
+    };
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
@@ -59,10 +67,13 @@ export class PaymentsService {
     switch (event.type) {
       case 'charge.succeeded': {
         const chargeSucceeded = event.data.object;
-        console.log({
-          metadata: chargeSucceeded.metadata,
+        const payload = {
+          stripePaymentId: chargeSucceeded.id,
           orderId: chargeSucceeded.metadata.orderId,
-        });
+          receiptUrl: chargeSucceeded.receipt_url,
+        };
+
+        this.client.emit('payment.succeeded', payload);
 
         break;
       }
