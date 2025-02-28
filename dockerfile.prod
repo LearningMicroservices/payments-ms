@@ -1,0 +1,49 @@
+
+#DependenciAS
+FROM node:alpine AS deps
+
+WORKDIR /usr/src/app
+
+COPY  package*.json ./
+
+RUN npm install
+
+
+#Builder
+FROM node:alpine AS builder
+
+WORKDIR /usr/src/app
+
+#Copiar de deps, los módulos de node
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+
+#Copiar todo el código fuente
+COPY . .
+
+#Run npm run test
+
+RUN npm run build
+
+RUN npm ci -f --only=production && npm cache clean --force
+
+
+
+
+# Create Final Image
+FROM node:alpine AS prod
+
+WORKDIR /usr/src/app
+
+COPY --from=builder /usr/src/app/node_modules ./node_modules
+
+# Copiar la carpeta dist
+
+COPY --from=builder /usr/src/app/dist ./dist
+
+ENV NODE_ENV=production
+
+USER node
+
+EXPOSE 3000
+
+CMD ["node", "dist/main"]
